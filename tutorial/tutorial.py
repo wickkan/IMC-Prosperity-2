@@ -11,6 +11,10 @@ class Trader:
         self.position_limits = {"AMETHYSTS": 20, "STARFRUIT": 20}
         self.position = {"AMETHYSTS": 0, "STARFRUIT": 0}
         self.price_memory = {"AMETHYSTS": [], "STARFRUIT": []}
+        self.stop_loss_threshold = {"AMETHYSTS": -
+                                    10, "STARFRUIT": -10}  # Example values
+        self.profit_target = {"AMETHYSTS": 10,
+                              "STARFRUIT": 10}  # Example values
 
     def update_price_memory(self, product, order_depth):
         best_ask = min(
@@ -39,23 +43,39 @@ class Trader:
         if not acceptable_price:
             return orders
 
-        # Dynamic order strategy
+        current_position = self.position[product]
+        stop_loss_price = acceptable_price + self.stop_loss_threshold[product]
+        profit_target_price = acceptable_price + self.profit_target[product]
+
         for ask, qty in order_depth.sell_orders.items():
-            if ask < acceptable_price and self.position[product] < self.position_limits[product]:
+            if ask < acceptable_price and current_position < self.position_limits[product]:
                 order_qty = min(-qty,
-                                self.position_limits[product] - self.position[product])
-                orders.append(Order(product, ask, order_qty))
-                self.position[product] += order_qty
+                                self.position_limits[product] - current_position)
+                if self.check_stop_loss(current_position, ask, stop_loss_price):
+                    orders.append(Order(product, ask, order_qty))
+                    self.position[product] += order_qty
+                else:
+                    print(f"Stop loss triggered for {
+                          product}, not buying at {ask}")
 
         for bid, qty in order_depth.buy_orders.items():
-            if bid > acceptable_price and self.position[product] > -self.position_limits[product]:
-                order_qty = - \
-                    min(qty, self.position[product] +
-                        self.position_limits[product])
-                orders.append(Order(product, bid, order_qty))
-                self.position[product] += order_qty
+            if bid > acceptable_price and current_position > -self.position_limits[product]:
+                order_qty = -min(qty, current_position +
+                                 self.position_limits[product])
+                if self.check_profit_target(current_position, bid, profit_target_price):
+                    orders.append(Order(product, bid, order_qty))
+                    self.position[product] += order_qty
+                else:
+                    print(f"Profit target reached for {
+                          product}, not selling at {bid}")
 
         return orders
+
+    def check_stop_loss(self, position, current_price, stop_loss_price):
+        return position > 0 or current_price > stop_loss_price
+
+    def check_profit_target(self, position, current_price, profit_target_price):
+        return position < 0 or current_price < profit_target_price
 
     def run(self, state: TradingState):
         print("traderData: " + state.traderData)
