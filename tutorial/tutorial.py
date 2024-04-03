@@ -11,8 +11,8 @@ class Trader:
         self.position_limits = {"AMETHYSTS": 20, "STARFRUIT": 20}
         self.position = {"AMETHYSTS": 0, "STARFRUIT": 0}
         self.price_memory = {"AMETHYSTS": [], "STARFRUIT": []}
-        self.stop_loss_threshold = {"AMETHYSTS": -
-                                    10, "STARFRUIT": -10}  # Example values
+        self.stop_loss_threshold = {"AMETHYSTS": -10, 
+                                    "STARFRUIT": -10}  # Example values
         self.profit_target = {"AMETHYSTS": 10,
                               "STARFRUIT": 10}  # Example values
 
