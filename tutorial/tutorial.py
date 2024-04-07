@@ -124,7 +124,7 @@ class Trader:
         self.stop_loss_threshold = {"AMETHYSTS": -10, "STARFRUIT": -10}
         self.profit_target = {"AMETHYSTS": 10, "STARFRUIT": 10}
         self.sma_period = 5  # Period for simple moving average
-
+        
     def update_price_memory(self, product, order_depth):
         best_ask = min(
             order_depth.sell_orders) if order_depth.sell_orders else None
