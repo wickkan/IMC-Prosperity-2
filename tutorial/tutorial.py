@@ -117,14 +117,13 @@ logger = Logger()
 class Trader:
 
     def __init__(self):
-        self.logger = Logger()  # Instantiate the Logger
+        self.logger = Logger()  # Assuming Logger is defined elsewhere
         self.position_limits = {"AMETHYSTS": 20, "STARFRUIT": 20}
         self.position = {"AMETHYSTS": 0, "STARFRUIT": 0}
         self.price_memory = {"AMETHYSTS": [], "STARFRUIT": []}
-        self.stop_loss_threshold = {"AMETHYSTS": -
-                                    10, "STARFRUIT": -10}  # Example values
-        self.profit_target = {"AMETHYSTS": 10,
-                              "STARFRUIT": 10}  # Example values
+        self.stop_loss_threshold = {"AMETHYSTS": -10, "STARFRUIT": -10}
+        self.profit_target = {"AMETHYSTS": 10, "STARFRUIT": 10}
+        self.sma_period = 5  # Period for simple moving average
 
     def update_price_memory(self, product, order_depth):
         best_ask = min(
@@ -141,9 +140,14 @@ class Trader:
             avg_price = sum(recent_prices) / len(recent_prices)
             price_variance = np.var(recent_prices)
             if price_variance > 1:
-                # Adapt prices based on volatility
                 return avg_price * (1 + np.sign(price_variance - 1) * 0.05)
             return avg_price
+        return None
+
+    def calculate_sma(self, product):
+        prices = self.price_memory[product]
+        if len(prices) >= self.sma_period:
+            return sum(prices[-self.sma_period:]) / self.sma_period
         return None
 
     def decide_order_for_product(self, product, order_depth):
@@ -154,14 +158,19 @@ class Trader:
             return orders
 
         current_position = self.position[product]
-        stop_loss_price = acceptable_price + self.stop_loss_threshold[product]
-        profit_target_price = acceptable_price + self.profit_target[product]
+        sma = self.calculate_sma(product)
+        # Dynamic thresholds based on recent SMA
+        dynamic_stop_loss = sma - \
+            self.stop_loss_threshold[product] if sma else None
+        dynamic_profit_target = sma + \
+            self.profit_target[product] if sma else None
 
         for ask, qty in order_depth.sell_orders.items():
             if ask < acceptable_price and current_position < self.position_limits[product]:
                 order_qty = min(-qty,
                                 self.position_limits[product] - current_position)
-                if self.check_stop_loss(current_position, ask, stop_loss_price):
+                # Using dynamic thresholds if available
+                if dynamic_stop_loss and ask > dynamic_stop_loss:
                     orders.append(Order(product, ask, order_qty))
                     self.position[product] += order_qty
 
@@ -169,17 +178,12 @@ class Trader:
             if bid > acceptable_price and current_position > -self.position_limits[product]:
                 order_qty = -min(qty, current_position +
                                  self.position_limits[product])
-                if self.check_profit_target(current_position, bid, profit_target_price):
+                # Using dynamic thresholds if available
+                if dynamic_profit_target and bid < dynamic_profit_target:
                     orders.append(Order(product, bid, order_qty))
                     self.position[product] += order_qty
 
         return orders
-
-    def check_stop_loss(self, position, current_price, stop_loss_price):
-        return position > 0 or current_price > stop_loss_price
-
-    def check_profit_target(self, position, current_price, profit_target_price):
-        return position < 0 or current_price < profit_target_price
 
     def run(self, state: TradingState):
         self.logger.print("traderData: " + state.traderData)
@@ -194,8 +198,6 @@ class Trader:
         traderData = "Adaptive Strategy Based on Market Conditions"
         conversions = 1
 
-        # Use logger to flush final output instead of returning it directly
         self.logger.flush(state, result, conversions, traderData)
 
-        # Optionally, you can still return the result, conversions, and traderData if needed by other parts of your program
         return result, conversions, traderData
