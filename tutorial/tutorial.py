@@ -1,21 +1,130 @@
-from datamodel import TradingState, OrderDepth, Order, Listing
-# Add Tuple and Dict to your imports
-from typing import List, Tuple, Dict
-# Import any other necessary classes or modules
 import numpy as np
+import json
+from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
+from typing import Any
+
+
+class Logger:
+    def __init__(self) -> None:
+        self.logs = ""
+        self.max_log_length = 3750
+
+    def print(self, *objects: Any, sep: str = " ", end: str = "\n") -> None:
+        self.logs += sep.join(map(str, objects)) + end
+
+    def flush(self, state: TradingState, orders: dict[Symbol, list[Order]], conversions: int, trader_data: str) -> None:
+        base_length = len(self.to_json([
+            self.compress_state(state, ""),
+            self.compress_orders(orders),
+            conversions,
+            "",
+            "",
+        ]))
+
+        # We truncate state.traderData, trader_data, and self.logs to the same max. length to fit the log limit
+        max_item_length = (self.max_log_length - base_length) // 3
+
+        print(self.to_json([
+            self.compress_state(state, self.truncate(
+                state.traderData, max_item_length)),
+            self.compress_orders(orders),
+            conversions,
+            self.truncate(trader_data, max_item_length),
+            self.truncate(self.logs, max_item_length),
+        ]))
+
+        self.logs = ""
+
+    def compress_state(self, state: TradingState, trader_data: str) -> list[Any]:
+        return [
+            state.timestamp,
+            trader_data,
+            self.compress_listings(state.listings),
+            self.compress_order_depths(state.order_depths),
+            self.compress_trades(state.own_trades),
+            self.compress_trades(state.market_trades),
+            state.position,
+            self.compress_observations(state.observations),
+        ]
+
+    def compress_listings(self, listings: dict[Symbol, Listing]) -> list[list[Any]]:
+        compressed = []
+        for listing in listings.values():
+            compressed.append(
+                [listing["symbol"], listing["product"], listing["denomination"]])
+
+        return compressed
+
+    def compress_order_depths(self, order_depths: dict[Symbol, OrderDepth]) -> dict[Symbol, list[Any]]:
+        compressed = {}
+        for symbol, order_depth in order_depths.items():
+            compressed[symbol] = [
+                order_depth.buy_orders, order_depth.sell_orders]
+
+        return compressed
+
+    def compress_trades(self, trades: dict[Symbol, list[Trade]]) -> list[list[Any]]:
+        compressed = []
+        for arr in trades.values():
+            for trade in arr:
+                compressed.append([
+                    trade.symbol,
+                    trade.price,
+                    trade.quantity,
+                    trade.buyer,
+                    trade.seller,
+                    trade.timestamp,
+                ])
+
+        return compressed
+
+    def compress_observations(self, observations: Observation) -> list[Any]:
+        conversion_observations = {}
+        for product, observation in observations.conversionObservations.items():
+            conversion_observations[product] = [
+                observation.bidPrice,
+                observation.askPrice,
+                observation.transportFees,
+                observation.exportTariff,
+                observation.importTariff,
+                observation.sunlight,
+                observation.humidity,
+            ]
+
+        return [observations.plainValueObservations, conversion_observations]
+
+    def compress_orders(self, orders: dict[Symbol, list[Order]]) -> list[list[Any]]:
+        compressed = []
+        for arr in orders.values():
+            for order in arr:
+                compressed.append([order.symbol, order.price, order.quantity])
+
+        return compressed
+
+    def to_json(self, value: Any) -> str:
+        return json.dumps(value, cls=ProsperityEncoder, separators=(",", ":"))
+
+    def truncate(self, value: str, max_length: int) -> str:
+        if len(value) <= max_length:
+            return value
+
+        return value[:max_length - 3] + "..."
+
+
+logger = Logger()
 
 
 class Trader:
 
     def __init__(self):
+        self.logger = Logger()  # Assuming Logger is defined elsewhere
         self.position_limits = {"AMETHYSTS": 20, "STARFRUIT": 20}
         self.position = {"AMETHYSTS": 0, "STARFRUIT": 0}
         self.price_memory = {"AMETHYSTS": [], "STARFRUIT": []}
-        self.stop_loss_threshold = {"AMETHYSTS": -10, 
-                                    "STARFRUIT": -10}  # Example values
-        self.profit_target = {"AMETHYSTS": 10,
-                              "STARFRUIT": 10}  # Example values
-
+        self.stop_loss_threshold = {"AMETHYSTS": -10, "STARFRUIT": -10}
+        self.profit_target = {"AMETHYSTS": 10, "STARFRUIT": 10}
+        self.sma_period = 5  # Period for simple moving average
+        
     def update_price_memory(self, product, order_depth):
         best_ask = min(
             order_depth.sell_orders) if order_depth.sell_orders else None
@@ -31,9 +140,14 @@ class Trader:
             avg_price = sum(recent_prices) / len(recent_prices)
             price_variance = np.var(recent_prices)
             if price_variance > 1:
-                # Adapt prices based on volatility
                 return avg_price * (1 + np.sign(price_variance - 1) * 0.05)
             return avg_price
+        return None
+
+    def calculate_sma(self, product):
+        prices = self.price_memory[product]
+        if len(prices) >= self.sma_period:
+            return sum(prices[-self.sma_period:]) / self.sma_period
         return None
 
     def decide_order_for_product(self, product, order_depth):
@@ -44,42 +158,36 @@ class Trader:
             return orders
 
         current_position = self.position[product]
-        stop_loss_price = acceptable_price + self.stop_loss_threshold[product]
-        profit_target_price = acceptable_price + self.profit_target[product]
+        sma = self.calculate_sma(product)
+        # Dynamic thresholds based on recent SMA
+        dynamic_stop_loss = sma - \
+            self.stop_loss_threshold[product] if sma else None
+        dynamic_profit_target = sma + \
+            self.profit_target[product] if sma else None
 
         for ask, qty in order_depth.sell_orders.items():
             if ask < acceptable_price and current_position < self.position_limits[product]:
                 order_qty = min(-qty,
                                 self.position_limits[product] - current_position)
-                if self.check_stop_loss(current_position, ask, stop_loss_price):
+                # Using dynamic thresholds if available
+                if dynamic_stop_loss and ask > dynamic_stop_loss:
                     orders.append(Order(product, ask, order_qty))
                     self.position[product] += order_qty
-                else:
-                    print(f"Stop loss triggered for {
-                          product}, not buying at {ask}")
 
         for bid, qty in order_depth.buy_orders.items():
             if bid > acceptable_price and current_position > -self.position_limits[product]:
                 order_qty = -min(qty, current_position +
                                  self.position_limits[product])
-                if self.check_profit_target(current_position, bid, profit_target_price):
+                # Using dynamic thresholds if available
+                if dynamic_profit_target and bid < dynamic_profit_target:
                     orders.append(Order(product, bid, order_qty))
                     self.position[product] += order_qty
-                else:
-                    print(f"Profit target reached for {
-                          product}, not selling at {bid}")
 
         return orders
 
-    def check_stop_loss(self, position, current_price, stop_loss_price):
-        return position > 0 or current_price > stop_loss_price
-
-    def check_profit_target(self, position, current_price, profit_target_price):
-        return position < 0 or current_price < profit_target_price
-
     def run(self, state: TradingState):
-        print("traderData: " + state.traderData)
-        print("Observations: " + str(state.observations))
+        self.logger.print("traderData: " + state.traderData)
+        self.logger.print("Observations: " + str(state.observations))
         result = {}
 
         for product in state.order_depths:
@@ -89,4 +197,7 @@ class Trader:
 
         traderData = "Adaptive Strategy Based on Market Conditions"
         conversions = 1
+
+        self.logger.flush(state, result, conversions, traderData)
+
         return result, conversions, traderData
