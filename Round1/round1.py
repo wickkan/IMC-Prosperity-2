@@ -1,7 +1,7 @@
 import numpy as np
 import json
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
-from typing import Any
+from typing import Any, List
 
 
 class Logger:
@@ -117,87 +117,51 @@ logger = Logger()
 class Trader:
 
     def __init__(self):
-        self.logger = Logger()  # Assuming Logger is defined elsewhere
-        self.position_limits = {"AMETHYSTS": 20, "STARFRUIT": 20}
-        self.position = {"AMETHYSTS": 0, "STARFRUIT": 0}
-        self.price_memory = {"AMETHYSTS": [], "STARFRUIT": []}
-        self.stop_loss_threshold = {"AMETHYSTS": -10, "STARFRUIT": -10}
-        self.profit_target = {"AMETHYSTS": 10, "STARFRUIT": 10}
-        self.sma_period = 5  # Period for simple moving average
-        
-    def update_price_memory(self, product, order_depth):
-        best_ask = min(
-            order_depth.sell_orders) if order_depth.sell_orders else None
-        best_bid = max(
-            order_depth.buy_orders) if order_depth.buy_orders else None
-        if best_ask and best_bid:
-            mid_price = (best_ask + best_bid) / 2
-            self.price_memory[product].append(mid_price)
-
-    def calculate_acceptable_price(self, product):
-        if self.price_memory[product]:
-            recent_prices = self.price_memory[product][-5:]
-            avg_price = sum(recent_prices) / len(recent_prices)
-            price_variance = np.var(recent_prices)
-            if price_variance > 1:
-                return avg_price * (1 + np.sign(price_variance - 1) * 0.05)
-            return avg_price
-        return None
-
-    def calculate_sma(self, product):
-        prices = self.price_memory[product]
-        if len(prices) >= self.sma_period:
-            return sum(prices[-self.sma_period:]) / self.sma_period
-        return None
-
-    def decide_order_for_product(self, product, order_depth):
-        orders = []
-        self.update_price_memory(product, order_depth)
-        acceptable_price = self.calculate_acceptable_price(product)
-        if not acceptable_price:
-            return orders
-
-        current_position = self.position[product]
-        sma = self.calculate_sma(product)
-        # Dynamic thresholds based on recent SMA
-        dynamic_stop_loss = sma - \
-            self.stop_loss_threshold[product] if sma else None
-        dynamic_profit_target = sma + \
-            self.profit_target[product] if sma else None
-
-        for ask, qty in order_depth.sell_orders.items():
-            if ask < acceptable_price and current_position < self.position_limits[product]:
-                order_qty = min(-qty,
-                                self.position_limits[product] - current_position)
-                # Using dynamic thresholds if available
-                if dynamic_stop_loss and ask > dynamic_stop_loss:
-                    orders.append(Order(product, ask, order_qty))
-                    self.position[product] += order_qty
-
-        for bid, qty in order_depth.buy_orders.items():
-            if bid > acceptable_price and current_position > -self.position_limits[product]:
-                order_qty = -min(qty, current_position +
-                                 self.position_limits[product])
-                # Using dynamic thresholds if available
-                if dynamic_profit_target and bid < dynamic_profit_target:
-                    orders.append(Order(product, bid, order_qty))
-                    self.position[product] += order_qty
-
-        return orders
+        # self.logger = Logger()  # Assuming Logger is defined elsewhere
+        self.target_prices = {'STARFRUIT': 50, 'AMETHYSTS': 10000}
+        self.std_dev = {
+            'STARFRUIT': [11.717, 13.575, 32.751],
+            'AMETHYSTS': [1.496, 1.479, 1.513]
+        }
 
     def run(self, state: TradingState):
-        self.logger.print("traderData: " + state.traderData)
-        self.logger.print("Observations: " + str(state.observations))
+        print("traderData: " + state.traderData)
+        print("Observations: " + str(state.observations))
         result = {}
-
         for product in state.order_depths:
-            order_depth = state.order_depths[product]
-            orders = self.decide_order_for_product(product, order_depth)
+            order_depth: OrderDepth = state.order_depths[product]
+            orders: List[Order] = []
+            # Calculate acceptable price based on standard deviation and target price
+            acceptable_buy_price = self.target_prices[product] - \
+                self.std_dev[product][0]
+            acceptable_sell_price = self.target_prices[product] + \
+                self.std_dev[product][0]
+
+            print("Acceptable buy price for",
+                  product, ":", acceptable_buy_price)
+            print("Acceptable sell price for",
+                  product, ":", acceptable_sell_price)
+
+            # Decide on buy orders based on the sell side of the order book
+            for price, amount in order_depth.sell_orders.items():
+                if price <= acceptable_buy_price:
+                    print("BUY", product, "at", price, "for", amount)
+                    orders.append(Order(product, price, -amount))
+
+            # Decide on sell orders based on the buy side of the order book
+            for price, amount in order_depth.buy_orders.items():
+                if price >= acceptable_sell_price:
+                    print("SELL", product, "at", price, "for", amount)
+                    orders.append(Order(product, price, -amount))
+
             result[product] = orders
 
-        traderData = "Adaptive Strategy Based on Market Conditions"
+        # The Trader state is a simple string in this example.
+        # In a full implementation, you might serialize the current Trader state
+        # including any pending orders, positions, etc.
+        traderData = "SAMPLE"
+
+        # The number of conversions to make. This is a placeholder value.
         conversions = 1
-
-        self.logger.flush(state, result, conversions, traderData)
-
+        logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
