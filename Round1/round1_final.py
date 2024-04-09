@@ -7,6 +7,7 @@ from typing import Any, List
 class Trader:
 
     def __init__(self):
+        self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
         self.target_prices = {'STARFRUIT': 50, 'AMETHYSTS': 10000}
         self.std_dev = {
             'STARFRUIT': [11.717, 13.575, 32.751],
@@ -20,6 +21,7 @@ class Trader:
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
+            net_position_change = 0
             # Calculate acceptable price based on standard deviation and target price
             acceptable_buy_price = self.target_prices[product] - \
                 self.std_dev[product][0]
@@ -31,17 +33,32 @@ class Trader:
             print("Acceptable sell price for",
                   product, ":", acceptable_sell_price)
 
-            # Decide on buy orders based on the sell side of the order book
-            for price, amount in order_depth.sell_orders.items():
-                if price <= acceptable_buy_price:
-                    print("BUY", product, "at", price, "for", amount)
-                    orders.append(Order(product, price, -amount))
+            current_position = state.position.get(product, 0)
+            available_buy_limit = self.position_limits[product] - \
+                current_position
+            available_sell_limit = self.position_limits[product] + \
+                current_position
 
-            # Decide on sell orders based on the buy side of the order book
-            for price, amount in order_depth.buy_orders.items():
+            for price, amount in sorted(order_depth.sell_orders.items()):
+                if price <= acceptable_buy_price:
+                    # Calculate potential trade amount without exceeding the position limit
+                    trade_amount = min(-amount, available_buy_limit -
+                                       net_position_change)
+                    if trade_amount > 0:
+                        print("BUY", product, "at", price, "for", trade_amount)
+                        orders.append(Order(product, price, trade_amount))
+                        net_position_change += trade_amount
+
+            for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
                 if price >= acceptable_sell_price:
-                    print("SELL", product, "at", price, "for", amount)
-                    orders.append(Order(product, price, -amount))
+                    # Calculate potential trade amount without exceeding the position limit
+                    trade_amount = min(amount, available_sell_limit -
+                                       abs(net_position_change))
+                    if trade_amount > 0:
+                        print("SELL", product, "at",
+                              price, "for", trade_amount)
+                        orders.append(Order(product, price, -trade_amount))
+                        net_position_change -= trade_amount
 
             result[product] = orders
 
