@@ -2,7 +2,7 @@ import numpy as np
 import json
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 from typing import Any, List, Dict
-import math
+import collections
 
 
 class Logger:
@@ -117,55 +117,40 @@ logger = Logger()
 
 class Trader:
     def __init__(self):
-        self.target_prices = {'STARFRUIT': 50, 'AMETHYSTS': 10000}
-        self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
-        self.std_dev = {
-            'STARFRUIT': [11.717, 13.575, 32.751],
-            'AMETHYSTS': [1.496, 1.479, 1.513]
-        }
+        self.stable_price = 10000
+        self.position_limit = 20
+        self.spread = 2  # considering a spread of 2 around the stable price
+        self.max_order_size = 30  # considering the historical max volume
 
-    def run(self, state: TradingState):
-        print("traderData: " + state.traderData)
-        print("Observations: " + str(state.observations))
+    def run(self, state: TradingState) -> Dict[str, List[Order]]:
         result = {}
-
         for product in state.order_depths:
-            order_depth: OrderDepth = state.order_depths[product]
-            orders: List[Order] = []
+            if product == "AMETHYSTS":
+                order_depth: OrderDepth = state.order_depths[product]
+                orders: List[Order] = []
+                current_position = state.position.get(product, 0)
 
-            current_position = state.position.get(product, 0)
-            available_buy_limit = self.position_limits[product] - \
-                current_position
-            available_sell_limit = self.position_limits[product] + \
-                current_position
+                # Market-making strategy around the stable price
+                acceptable_bid = self.stable_price - self.spread
+                acceptable_ask = self.stable_price + self.spread
 
-            acceptable_buy_price = self.target_prices[product] - \
-                self.std_dev[product][0]
-            acceptable_sell_price = self.target_prices[product] + \
-                self.std_dev[product][0]
+                # Generate buy orders if under position limit
+                if current_position < self.position_limit:
+                    volume_to_buy = min(self.max_order_size,
+                                        self.position_limit - current_position)
+                    orders.append(
+                        Order(product, acceptable_bid, volume_to_buy))
 
-            # Decide on buy orders based on the sell side of the order book
-            for price, amount in sorted(order_depth.sell_orders.items()):
-                if price <= acceptable_buy_price:
-                    trade_amount = min(-amount, available_buy_limit)
-                    if trade_amount > 0:
-                        print("BUY", product, "at", price, "for", trade_amount)
-                        orders.append(Order(product, price, trade_amount))
-                        available_buy_limit -= trade_amount
+                # Generate sell orders if under position limit
+                if current_position > -self.position_limit:
+                    volume_to_sell = min(
+                        self.max_order_size, self.position_limit + current_position)
+                    orders.append(
+                        Order(product, acceptable_ask, -volume_to_sell))
 
-            # Decide on sell orders based on the buy side of the order book
-            for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
-                if price >= acceptable_sell_price:
-                    trade_amount = min(amount, available_sell_limit)
-                    if trade_amount > 0:
-                        print("SELL", product, "at",
-                              price, "for", trade_amount)
-                        orders.append(Order(product, price, -trade_amount))
-                        available_sell_limit -= trade_amount
+                result[product] = orders
 
-            result[product] = orders
-
-        traderData = "SAMPLE"
-        conversions = 1
-        logger.flush(state, result, conversions, traderData)
+        # Assuming conversions and traderData are not a part of this strategy yet
+        conversions = 0
+        traderData = "AMETHYSTS Trader State"
         return result, conversions, traderData
