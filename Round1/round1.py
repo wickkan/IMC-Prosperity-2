@@ -3,6 +3,8 @@ import json
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 from typing import Any, List, Dict
 import collections
+from collections import defaultdict
+import copy
 
 
 class Logger:
@@ -116,41 +118,81 @@ logger = Logger()
 
 
 class Trader:
-    def __init__(self):
-        self.stable_price = 10000
-        self.position_limit = 20
-        self.spread = 2  # considering a spread of 2 around the stable price
-        self.max_order_size = 30  # considering the historical max volume
 
-    def run(self, state: TradingState) -> Dict[str, List[Order]]:
+    def __init__(self):
+        self.target_prices = {'STARFRUIT': 0, 'AMETHYSTS': 10000}
+        self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
+        self.std_dev = {
+            'STARFRUIT': [11.717, 13.575, 32.751],
+            'AMETHYSTS': [1.496, 1.479, 1.513]
+        }
+
+    def run(self, state: TradingState):
+        timestamp = state.timestamp
+        # Determine the phase of the trading day based on timestamp
+        if timestamp <= 333330:
+            time_of_day = 'early'
+        elif timestamp <= 666660:
+            time_of_day = 'midday'
+        else:
+            time_of_day = 'end_of_day'
+
         result = {}
         for product in state.order_depths:
-            if product == "AMETHYSTS":
-                order_depth: OrderDepth = state.order_depths[product]
-                orders: List[Order] = []
-                current_position = state.position.get(product, 0)
+            order_depth: OrderDepth = state.order_depths[product]
+            orders: List[Order] = []
+            current_position = state.position.get(product, 0)
+            available_buy_limit = self.position_limits[product] - \
+                current_position
+            available_sell_limit = self.position_limits[product] + \
+                current_position
 
-                # Market-making strategy around the stable price
-                acceptable_bid = self.stable_price - self.spread
-                acceptable_ask = self.stable_price + self.spread
+            # Calculate acceptable buy and sell prices
+            if product == 'STARFRUIT':
+                acceptable_buy_price, acceptable_sell_price = self.calculate_starfruit_prices(
+                    time_of_day)
+            else:  # For AMETHYSTS and potentially other products
+                acceptable_buy_price = self.target_prices[product] - \
+                    self.std_dev[product][0]
+                acceptable_sell_price = self.target_prices[product] + \
+                    self.std_dev[product][0]
 
-                # Generate buy orders if under position limit
-                if current_position < self.position_limit:
-                    volume_to_buy = min(self.max_order_size,
-                                        self.position_limit - current_position)
-                    orders.append(
-                        Order(product, acceptable_bid, volume_to_buy))
+            # Decide on buy orders based on the sell side of the order book
+            for price, amount in sorted(order_depth.sell_orders.items()):
+                if price <= acceptable_buy_price and available_buy_limit > 0:
+                    trade_amount = min(-amount, available_buy_limit)
+                    print(f"BUY {product} at {price} for {trade_amount}")
+                    orders.append(Order(product, price, trade_amount))
+                    available_buy_limit -= trade_amount
 
-                # Generate sell orders if under position limit
-                if current_position > -self.position_limit:
-                    volume_to_sell = min(
-                        self.max_order_size, self.position_limit + current_position)
-                    orders.append(
-                        Order(product, acceptable_ask, -volume_to_sell))
+            # Decide on sell orders based on the buy side of the order book
+            for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
+                if price >= acceptable_sell_price and available_sell_limit > 0:
+                    trade_amount = min(amount, available_sell_limit)
+                    print(f"SELL {product} at {price} for {trade_amount}")
+                    orders.append(Order(product, price, -trade_amount))
+                    available_sell_limit -= trade_amount
 
-                result[product] = orders
+            result[product] = orders
 
-        # Assuming conversions and traderData are not a part of this strategy yet
-        conversions = 0
-        traderData = "AMETHYSTS Trader State"
+        traderData = "SAMPLE"  # Replace with actual trader state serialization logic
+        conversions = 1  # Replace with actual conversion logic
+
+        # Assuming logger.flush() method exists and properly implemented to handle logging.
+        logger.flush(state, result, conversions, traderData)
+
         return result, conversions, traderData
+
+    def calculate_starfruit_prices(self, time_of_day):
+        if time_of_day == 'early':
+            acceptable_buy_price = 4950
+            acceptable_sell_price = 5025  # Anticipate a rise, sell early positions
+        elif time_of_day == 'midday':
+            acceptable_buy_price = 5030  # Prices might peak, buy on slight dips
+            acceptable_sell_price = 5085  # Sell at peak prices
+        else:  # end_of_day
+            acceptable_buy_price = 5025  # Buy if prices dip towards the day's end
+            # Anticipate a last-minute rise or prepare for the next day
+            acceptable_sell_price = 5050
+
+        return acceptable_buy_price, acceptable_sell_price
