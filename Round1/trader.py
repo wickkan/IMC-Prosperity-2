@@ -10,12 +10,12 @@ class Trader:
         # starfruit target price unused
         self.target_prices = {'STARFRUIT': 5039.5, 'AMETHYSTS': 10000}
         self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
-        self.memory_length = 25  # to modify
+        self.memory_length = 20  # to modify
         self.price_memory = {"AMETHYSTS": [
             0]*self.memory_length, "STARFRUIT": [0]*self.memory_length}
         self.std_dev = {
             'STARFRUIT': 1.5,  # to modify
-            'AMETHYSTS': 1.5
+            'AMETHYSTS': 1.51
         }
         self.trend = None
 
@@ -65,6 +65,25 @@ class Trader:
                 self.price_memory[product][x] = self.price_memory[product][x+1]
             self.price_memory[product][-1] = mid_price
 
+    def train_model(self, product):
+        # Prepare data for training
+        prices = np.array(self.price_memory[product])
+        times = np.array(range(len(prices)))
+
+        # Calculate the mean of the times and prices
+        mean_time = np.mean(times)
+        mean_price = np.mean(prices)
+
+        # Calculate the terms needed for the numator and denominator of beta
+        times_diff = times - mean_time
+        prices_diff = prices - mean_price
+
+        # Calculate beta and alpha
+        beta = np.sum(times_diff * prices_diff) / np.sum(times_diff**2)
+        alpha = mean_price - (beta * mean_time)
+
+        return alpha, beta
+
     def calc_starfruit_orders(self, state, product="STARFRUIT"):
         order_depth = state.order_depths[product]
         orders = []
@@ -73,26 +92,26 @@ class Trader:
         available_sell_limit = self.position_limits[product] + current_position
         self.update_price_memory(product, order_depth)
 
-        acceptable_buy_price = np.average(
-            self.price_memory[product]) - self.std_dev[product]
-        acceptable_sell_price = np.average(
-            self.price_memory[product]) + self.std_dev[product]
+        # Train the model and predict the future price
+        alpha, beta = self.train_model(product)
+        future_price = alpha + beta * len(self.price_memory[product])
 
+        # Decide on buy orders based on the sell side of the order book
         for price, amount in sorted(order_depth.sell_orders.items()):
-            if price <= acceptable_buy_price:
+            if price <= future_price:
                 trade_amount = min(-amount, available_buy_limit)
                 if trade_amount > 0:
-                    print("BUY", product, "at", price, "for", trade_amount)
                     orders.append(Order(product, price, trade_amount))
                     available_buy_limit -= trade_amount
 
+        # Decide on sell orders based on the buy side of the order book
         for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
-            if price >= acceptable_sell_price:
+            if price >= future_price:
                 trade_amount = min(amount, available_sell_limit)
                 if trade_amount > 0:
-                    print("SELL", product, "at", price, "for", trade_amount)
                     orders.append(Order(product, price, -trade_amount))
                     available_sell_limit -= trade_amount
+
         return orders
 
     def run(self, state: TradingState):
