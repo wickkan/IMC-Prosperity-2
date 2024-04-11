@@ -7,7 +7,7 @@ from typing import Any, List
 class Trader:
 
     def __init__(self):
-        self.target_prices = {'STARFRUIT': 50, 'AMETHYSTS': 10000}
+        self.target_prices = {'STARFRUIT': 5039.5, 'AMETHYSTS': 10000}
         self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
         self.std_dev = {
             'STARFRUIT': [11.717, 13.575, 32.751],
@@ -15,6 +15,7 @@ class Trader:
         }
 
     def run(self, state: TradingState):
+        # need to update initial starfruit price based on order depth
         print("traderData: " + state.traderData)
         print("Observations: " + str(state.observations))
         result = {}
@@ -45,6 +46,8 @@ class Trader:
                         print("BUY", product, "at", price, "for", trade_amount)
                         orders.append(Order(product, price, trade_amount))
                         available_buy_limit -= trade_amount
+                        if product == "STARFRUIT":
+                            self.position_limits[product] = price
 
             # Decide on sell orders based on the buy side of the order book
             for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
@@ -55,10 +58,11 @@ class Trader:
                               price, "for", trade_amount)
                         orders.append(Order(product, price, -trade_amount))
                         available_sell_limit -= trade_amount
+                        if product == "STARFRUIT":
+                            self.position_limits[product] = price
 
             result[product] = orders
 
         traderData = "SAMPLE"  # Replace with actual trader state serialization logic
         conversions = 1  # Replace with actual conversion logic
-        # Make sure to pass the correct orders structure to the logger
         return result, conversions, traderData

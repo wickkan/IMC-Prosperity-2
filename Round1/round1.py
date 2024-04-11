@@ -120,7 +120,7 @@ logger = Logger()
 class Trader:
 
     def __init__(self):
-        self.target_prices = {'STARFRUIT': 0, 'AMETHYSTS': 10000}
+        self.target_prices = {'STARFRUIT': 5039.5, 'AMETHYSTS': 10000}
         self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
         self.std_dev = {
             'STARFRUIT': [11.717, 13.575, 32.751],
@@ -128,15 +128,9 @@ class Trader:
         }
 
     def run(self, state: TradingState):
-        timestamp = state.timestamp
-        # Determine the phase of the trading day based on timestamp
-        if timestamp <= 333330:
-            time_of_day = 'early'
-        elif timestamp <= 666660:
-            time_of_day = 'midday'
-        else:
-            time_of_day = 'end_of_day'
-
+        # need to update initial starfruit price based on order depth
+        print("traderData: " + state.traderData)
+        print("Observations: " + str(state.observations))
         result = {}
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
@@ -147,52 +141,42 @@ class Trader:
             available_sell_limit = self.position_limits[product] + \
                 current_position
 
-            # Calculate acceptable buy and sell prices
-            if product == 'STARFRUIT':
-                acceptable_buy_price, acceptable_sell_price = self.calculate_starfruit_prices(
-                    time_of_day)
-            else:  # For AMETHYSTS and potentially other products
-                acceptable_buy_price = self.target_prices[product] - \
-                    self.std_dev[product][0]
-                acceptable_sell_price = self.target_prices[product] + \
-                    self.std_dev[product][0]
+            acceptable_buy_price = self.target_prices[product] - \
+                self.std_dev[product][0]
+            acceptable_sell_price = self.target_prices[product] + \
+                self.std_dev[product][0]
+
+            print("Acceptable buy price for",
+                  product, ":", acceptable_buy_price)
+            print("Acceptable sell price for",
+                  product, ":", acceptable_sell_price)
 
             # Decide on buy orders based on the sell side of the order book
             for price, amount in sorted(order_depth.sell_orders.items()):
-                if price <= acceptable_buy_price and available_buy_limit > 0:
+                if price <= acceptable_buy_price:
                     trade_amount = min(-amount, available_buy_limit)
-                    print(f"BUY {product} at {price} for {trade_amount}")
-                    orders.append(Order(product, price, trade_amount))
-                    available_buy_limit -= trade_amount
+                    if trade_amount > 0:
+                        print("BUY", product, "at", price, "for", trade_amount)
+                        orders.append(Order(product, price, trade_amount))
+                        available_buy_limit -= trade_amount
+                        if product == "STARFRUIT":
+                            self.position_limits[product] = price
 
             # Decide on sell orders based on the buy side of the order book
             for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
-                if price >= acceptable_sell_price and available_sell_limit > 0:
+                if price >= acceptable_sell_price:
                     trade_amount = min(amount, available_sell_limit)
-                    print(f"SELL {product} at {price} for {trade_amount}")
-                    orders.append(Order(product, price, -trade_amount))
-                    available_sell_limit -= trade_amount
+                    if trade_amount > 0:
+                        print("SELL", product, "at",
+                              price, "for", trade_amount)
+                        orders.append(Order(product, price, -trade_amount))
+                        available_sell_limit -= trade_amount
+                        if product == "STARFRUIT":
+                            self.position_limits[product] = price
 
             result[product] = orders
 
         traderData = "SAMPLE"  # Replace with actual trader state serialization logic
         conversions = 1  # Replace with actual conversion logic
-
-        # Assuming logger.flush() method exists and properly implemented to handle logging.
         logger.flush(state, result, conversions, traderData)
-
         return result, conversions, traderData
-
-    def calculate_starfruit_prices(self, time_of_day):
-        if time_of_day == 'early':
-            acceptable_buy_price = 4950
-            acceptable_sell_price = 5025  # Anticipate a rise, sell early positions
-        elif time_of_day == 'midday':
-            acceptable_buy_price = 5030  # Prices might peak, buy on slight dips
-            acceptable_sell_price = 5085  # Sell at peak prices
-        else:  # end_of_day
-            acceptable_buy_price = 5025  # Buy if prices dip towards the day's end
-            # Anticipate a last-minute rise or prepare for the next day
-            acceptable_sell_price = 5050
-
-        return acceptable_buy_price, acceptable_sell_price
