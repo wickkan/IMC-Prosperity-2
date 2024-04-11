@@ -8,7 +8,7 @@ import numpy as np
 class Trader:
 
     def __init__(self):
-        self.target_prices = {'STARFRUIT': 5048.75, 'AMETHYSTS': 10000}
+        self.target_prices = {'STARFRUIT': 5068, 'AMETHYSTS': 10000}
         self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
         self.std_dev = {
             'STARFRUIT': [11.717, 13.575, 32.751],
