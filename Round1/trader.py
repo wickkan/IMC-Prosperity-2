@@ -1,6 +1,5 @@
 import numpy as np
-import json
-from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
+from datamodel import Order, Symbol, TradingState
 from typing import Any, List
 
 
@@ -18,6 +17,7 @@ class Trader:
             'AMETHYSTS': 1.51
         }
         self.trend = None
+        self.smoothing_factor = 0.2  # Alpha for exponential smoothing
 
     def calc_amethysts_orders(self, state, product="AMETHYSTS"):
         order_depth = state.order_depths[product]
@@ -61,52 +61,43 @@ class Trader:
             order_depth.buy_orders) if order_depth.buy_orders else None
         if best_ask and best_bid:
             mid_price = (best_ask + best_bid) / 2
-            for x in range(self.memory_length-1):
-                self.price_memory[product][x] = self.price_memory[product][x+1]
-            self.price_memory[product][-1] = mid_price
+            self.price_memory[product].append(mid_price)
+            if len(self.price_memory[product]) > self.memory_length:
+                self.price_memory[product].pop(0)
 
-    def train_model(self, product):
-        # Prepare data for training
-        prices = np.array(self.price_memory[product])
-        times = np.array(range(len(prices)))
-
-        # Calculate the mean of the times and prices
-        mean_time = np.mean(times)
-        mean_price = np.mean(prices)
-
-        # Calculate the terms needed for the numator and denominator of beta
-        times_diff = times - mean_time
-        prices_diff = prices - mean_price
-
-        # Calculate beta and alpha
-        beta = np.sum(times_diff * prices_diff) / np.sum(times_diff**2)
-        alpha = mean_price - (beta * mean_time)
-
-        return alpha, beta
+    def predict_price_exponential_smoothing(self, product):
+        prices = self.price_memory[product]
+        if not prices:
+            return None
+        smooth_price = prices[0]
+        for price in prices[1:]:
+            smooth_price = self.smoothing_factor * price + \
+                (1 - self.smoothing_factor) * smooth_price
+        return smooth_price
 
     def calc_starfruit_orders(self, state, product="STARFRUIT"):
         order_depth = state.order_depths[product]
+        self.update_price_memory(product, order_depth)
+        predicted_price = self.predict_price_exponential_smoothing(product)
+        if predicted_price is None:
+            return []
+
         orders = []
         current_position = state.position.get(product, 0)
         available_buy_limit = self.position_limits[product] - current_position
         available_sell_limit = self.position_limits[product] + current_position
-        self.update_price_memory(product, order_depth)
 
-        # Train the model and predict the future price
-        alpha, beta = self.train_model(product)
-        future_price = alpha + beta * len(self.price_memory[product])
-
-        # Decide on buy orders based on the sell side of the order book
+        # Buy orders
         for price, amount in sorted(order_depth.sell_orders.items()):
-            if price <= future_price:
+            if price <= predicted_price:
                 trade_amount = min(-amount, available_buy_limit)
                 if trade_amount > 0:
                     orders.append(Order(product, price, trade_amount))
                     available_buy_limit -= trade_amount
 
-        # Decide on sell orders based on the buy side of the order book
+        # Sell orders
         for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
-            if price >= future_price:
+            if price >= predicted_price:
                 trade_amount = min(amount, available_sell_limit)
                 if trade_amount > 0:
                     orders.append(Order(product, price, -trade_amount))
