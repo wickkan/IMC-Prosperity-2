@@ -107,46 +107,49 @@ class Trader:
     def calc_orchids_orders(self, state, product="ORCHIDS"):
         conversion_obs = state.observations.conversionObservations.get(
             product, None)
-        orders = []
-
         if not conversion_obs:
-            return []  # If there is no conversion data, we cannot trade
+            return [], 0  # No conversions if no data available
 
-        # Calculate total costs and revenues for importing and exporting ORCHIDS
-        import_cost = conversion_obs.askPrice + \
-            conversion_obs.transportFees + max(conversion_obs.importTariff, 0)
-        export_revenue = conversion_obs.bidPrice - \
-            conversion_obs.transportFees - max(conversion_obs.exportTariff, 0)
+        # Calculate sunlight and humidity impacts
+        sunlight_hours = conversion_obs.sunlight / \
+            2500  # Convert sunlight units to hours
+        production_decrease = 0 if sunlight_hours >= 7 else (
+            7 - sunlight_hours) * 24 * 0.04  # 4% decrease per 10 minutes below 7 hours
+        humidity_effect = 1 - 0.02 * \
+            (abs(conversion_obs.humidity - 70) // 5) if not (60 <=
+                                                             conversion_obs.humidity <= 80) else 1
 
-        # Simplified decision: Buy if import cost is less than export revenue, Sell if position and export revenue is greater than import cost
+        # Adjust import and export prices based on environmental impacts
+        import_cost = (conversion_obs.askPrice + conversion_obs.transportFees + max(
+            conversion_obs.importTariff, 0)) * (1 - production_decrease) * humidity_effect
+        export_revenue = (conversion_obs.bidPrice - conversion_obs.transportFees - max(
+            conversion_obs.exportTariff, 0)) * (1 - production_decrease) * humidity_effect
+
         current_position = state.position.get(product, 0)
+        conversions = 0
 
+        # Decide on conversions based on adjusted costs and revenues
         if import_cost < export_revenue:
-            # Simplified buy decision: Always buy one unit if profitable
-            # Assuming '1' is a valid order quantity
-            orders.append(Order(product, import_cost, 1))
+            # Buy if the adjusted import cost is less than the adjusted export revenue
+            # Buy up to 10 units, not exceeding position limits
+            conversions = min(
+                10, self.position_limits[product] - current_position)
+        elif current_position > 0 and export_revenue > import_cost:
+            # Sell if there's an existing position and the adjusted export revenue is greater than the import cost
+            # Sell up to the amount in current position, maximum of 10 units
+            conversions = -min(10, current_position)
 
-        if current_position > 0 and export_revenue > import_cost:
-            # Simplified sell decision: Sell one unit if profitable and position is non-zero
-            orders.append(Order(product, export_revenue, -1))  # Sell one unit
-
-        return orders
+        return [], conversions  # Returns no orders, only conversions
 
     def run(self, state: TradingState):
         result = {}
-        # Process AMETHYSTS and STARFRUIT orders
+        # Handle other products
         result["AMETHYSTS"] = self.calc_amethysts_orders(state)
         result["STARFRUIT"] = self.calc_starfruit_orders(state)
 
-        # Process ORCHIDS orders
-        orchids_orders = self.calc_orchids_orders(state)
-        if orchids_orders:
-            result["ORCHIDS"] = orchids_orders
-            # Here you would handle how these orders are submitted to the market or conversion process
+        # Handle ORCHIDS conversions
+        _, orchids_conversions = self.calc_orchids_orders(state)
 
-        # Update trader state data and conversion tracking
-        traderData = "Updated State"  # Replace with your state management logic
-        # Example: Counting the orders as conversions
-        conversions = len(orchids_orders)
-
-        return result, conversions, traderData
+        traderData = "Updated State Information"
+        # This returns the result, the total number of conversions, and updated trader data
+        return result, orchids_conversions, traderData
