@@ -110,46 +110,44 @@ class Trader:
         if not conversion_obs:
             return [], 0  # No conversions if no data available
 
-        # Calculate sunlight and humidity impacts
-        sunlight_hours = conversion_obs.sunlight / \
-            2500  # Convert sunlight units to hours
-        production_decrease = 0 if sunlight_hours >= 7 else (
-            7 - sunlight_hours) * 24 * 0.04  # 4% decrease per 10 minutes below 7 hours
-        humidity_effect = 1 - 0.02 * \
-            (abs(conversion_obs.humidity - 70) // 5) if not (60 <=
-                                                             conversion_obs.humidity <= 80) else 1
-
-        # Adjust import and export prices based on environmental impacts
-        import_cost = (conversion_obs.askPrice + conversion_obs.transportFees + max(
-            conversion_obs.importTariff, 0)) * (1 - production_decrease) * humidity_effect
-        export_revenue = (conversion_obs.bidPrice - conversion_obs.transportFees - max(
-            conversion_obs.exportTariff, 0)) * (1 - production_decrease) * humidity_effect
+        # Calculate adjusted prices for buying and selling with south island
+        import_cost = conversion_obs.askPrice + \
+            conversion_obs.transportFees + max(conversion_obs.importTariff, 0)
+        export_revenue = conversion_obs.bidPrice - \
+            conversion_obs.transportFees - max(conversion_obs.exportTariff, 0)
 
         current_position = state.position.get(product, 0)
         conversions = 0
 
-        # Decide on conversions based on adjusted costs and revenues
-        if import_cost < export_revenue:
-            # Buy if the adjusted import cost is less than the adjusted export revenue
-            # Buy up to 10 units, not exceeding position limits
+        # Local market operations
+        orders = []
+        # Decision logic for local buy orders at adjusted import cost
+        if current_position < self.position_limits[product]:
+            # Simple example: Buy locally if there's capacity
+            # Buy one unit locally
+            orders.append(Order(product, import_cost, 1))
+
+        # South island conversion operations
+        if import_cost < export_revenue and (self.position_limits[product] - current_position) > 0:
+            # Buy from south island if profitable
             conversions = min(
                 10, self.position_limits[product] - current_position)
         elif current_position > 0 and export_revenue > import_cost:
-            # Sell if there's an existing position and the adjusted export revenue is greater than the import cost
-            # Sell up to the amount in current position, maximum of 10 units
+            # Sell to south island if profitable
             conversions = -min(10, current_position)
 
-        return [], conversions  # Returns no orders, only conversions
+        return orders, conversions
 
     def run(self, state: TradingState):
         result = {}
-        # Handle other products
+        orchids_orders, orchids_conversions = self.calc_orchids_orders(state)
+
+        result["ORCHIDS"] = orchids_orders  # Local orders
+        conversions = orchids_conversions  # South island conversions
+
+        # Other product handling remains the same
         result["AMETHYSTS"] = self.calc_amethysts_orders(state)
         result["STARFRUIT"] = self.calc_starfruit_orders(state)
 
-        # Handle ORCHIDS conversions
-        _, orchids_conversions = self.calc_orchids_orders(state)
-
         traderData = "Updated State Information"
-        # This returns the result, the total number of conversions, and updated trader data
-        return result, orchids_conversions, traderData
+        return result, conversions, traderData
