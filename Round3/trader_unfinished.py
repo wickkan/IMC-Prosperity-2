@@ -20,7 +20,7 @@ class Trader:
         result = {}
         for product in state.order_depths:
             if product == 'CHOCOLATE':
-                result[product] = self.mean_reversion_strategy(state, product)
+                result[product] = self.price_action_strategy(state, product)
             elif product == 'STRAWBERRIES':
                 result[product] = self.momentum_strategy(state, product)
             elif product == 'ROSES':
@@ -32,80 +32,102 @@ class Trader:
         conversions = 1
         return result, conversions, traderData
 
+    def update_thresholds(self, product):
+        # Dynamically adjust thresholds based on recent price movements
+        std_dev = np.std(self.price_memory[product])
+        mean_price = np.mean(self.price_memory[product])
+        return mean_price, std_dev * 1.5  # Adjust multiplier based on market conditions
+
     def update_price_memory(self, product, price):
         self.price_memory[product].append(price)
         if len(self.price_memory[product]) > 50:  # Keep last 50 prices
             self.price_memory[product].pop(0)
 
-    def mean_reversion_strategy(self, state, product):
+    def price_action_strategy(self, state, product):
         order_depth = state.order_depths[product]
+        if not order_depth.sell_orders or not order_depth.buy_orders:
+            return []  # No available orders to trade
+
         best_ask, best_ask_amount = min(
             order_depth.sell_orders.items(), key=lambda x: x[0])
         best_bid, best_bid_amount = max(
             order_depth.buy_orders.items(), key=lambda x: x[0])
         mid_price = (best_ask + best_bid) / 2
+
         self.update_price_memory(product, mid_price)
 
-        average_price = np.mean(self.price_memory[product])
-        std_dev = np.std(self.price_memory[product])
+        # Hypothetical breakout condition: significant price drop
+        recent_prices = self.price_memory[product]
+        if len(recent_prices) > 5 and recent_prices[-1] < min(recent_prices[:-1]) * 0.95:
+            # Buy on breakout assumption
+            # Confirming price is still below recent low
+            if best_ask < recent_prices[-1]:
+                return [Order(product, best_ask, min(-best_ask_amount, self.position_limits[product]))]
 
-        # Buy if the price is significantly lower than the average, sell if significantly higher
-        orders = []
-        if best_ask < average_price - std_dev * self.std_dev_threshold[product]:
-            orders.append(
-                Order(product, best_ask, min(-best_ask_amount, self.position_limits[product])))
-        if best_bid > average_price + std_dev * self.std_dev_threshold[product]:
-            orders.append(Order(product, best_bid, -
-                          min(best_bid_amount, self.position_limits[product])))
-
-        return orders
+        return []
 
     def momentum_strategy(self, state, product):
+        # Simple momentum based on the last two prices
+        if len(self.price_memory[product]) < 2:
+            return []
+        momentum = self.price_memory[product][-1] - \
+            self.price_memory[product][-2]
         order_depth = state.order_depths[product]
         best_ask, best_ask_amount = min(
             order_depth.sell_orders.items(), key=lambda x: x[0])
         best_bid, best_bid_amount = max(
             order_depth.buy_orders.items(), key=lambda x: x[0])
-        mid_price = (best_ask + best_bid) / 2
-        self.update_price_memory(product, mid_price)
 
-        if len(self.price_memory[product]) < 2:
-            return []  # Not enough data to determine momentum
-
-        # Calculate momentum as the difference between the last two mid prices
-        momentum = self.price_memory[product][-1] - \
-            self.price_memory[product][-2]
         orders = []
-        # Price is rising
         if momentum > 0 and best_ask < self.price_memory[product][-1]:
             orders.append(
                 Order(product, best_ask, min(-best_ask_amount, self.position_limits[product])))
-        # Price is falling
         elif momentum < 0 and best_bid > self.price_memory[product][-1]:
             orders.append(Order(product, best_bid, -
                                 min(best_bid_amount, self.position_limits[product])))
 
         return orders
 
+    def safe_get_min_order(self, orders):
+        try:
+            return min(orders.items(), key=lambda x: x[0])
+        except ValueError:
+            return (float('inf'), 0)
+
+    def safe_get_max_order(self, orders):
+        try:
+            return max(orders.items(), key=lambda x: x[0])
+        except ValueError:
+            return (0, 0)
+
+    def adjust_thresholds_based_on_activity(self, product, base_threshold):
+        # Reduce threshold if no trades were made recently
+        if len(self.price_memory[product]) > 0 and all(x == self.price_memory[product][0] for x in self.price_memory[product]):
+            return base_threshold * 0.5  # Reduce threshold by 50%
+        return base_threshold
+
     def breakout_strategy(self, state, product):
         order_depth = state.order_depths[product]
-        best_ask, best_ask_amount = min(
-            order_depth.sell_orders.items(), key=lambda x: x[0])
-        best_bid, best_bid_amount = max(
-            order_depth.buy_orders.items(), key=lambda x: x[0])
+        best_ask, best_ask_amount = self.safe_get_min_order(
+            order_depth.sell_orders)
+        best_bid, best_bid_amount = self.safe_get_max_order(
+            order_depth.buy_orders)
+
+        if best_ask == float('inf') or best_bid == 0:
+            return []  # No valid orders to trade on
+
         mid_price = (best_ask + best_bid) / 2
         self.update_price_memory(product, mid_price)
 
         average_price = np.mean(self.price_memory[product])
         std_dev = np.std(self.price_memory[product])
-        # Define how large a price move must be to consider it a breakout
-        threshold = 2 * std_dev
+        threshold = 2 * std_dev  # Adjustable based on backtest results
 
         orders = []
-        if best_ask < average_price - threshold:  # Breakdown
+        if best_ask < average_price - threshold:
             orders.append(
                 Order(product, best_ask, min(-best_ask_amount, self.position_limits[product])))
-        elif best_bid > average_price + threshold:  # Breakout
+        if best_bid > average_price + threshold:
             orders.append(Order(product, best_bid, -
                                 min(best_bid_amount, self.position_limits[product])))
 
