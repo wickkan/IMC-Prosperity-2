@@ -1,57 +1,52 @@
 import numpy as np
-from datamodel import Order, Symbol, TradingState
-from typing import Any, List
+from datamodel import Order, TradingState
+from typing import List, Dict
 
 
 class Trader:
-
     def __init__(self):
-        # target prices are initially set for demonstration and will be adjusted dynamically based on environmental factors
-        self.target_prices = {'STARFRUIT': 5039.5,
-                              'AMETHYSTS': 10000, 'ORCHIDS': 5000}
-        self.position_limits = {'STARFRUIT': 20,
-                                'AMETHYSTS': 20, 'ORCHIDS': 100}
-        self.memory_length = 20  # Memory length for price memory
-        self.price_memory = {"AMETHYSTS": [0]*self.memory_length, "STARFRUIT": [
-            0]*self.memory_length, "ORCHIDS": [0]*self.memory_length}
-        self.std_dev = {'STARFRUIT': 1.5, 'AMETHYSTS': 1.51, 'ORCHIDS': 1.5}
-        self.trend = None
+        self.target_prices = {'STARFRUIT': 5039.5, 'AMETHYSTS': 10000}
+        self.position_limits = {'STARFRUIT': 20, 'AMETHYSTS': 20}
+        self.memory_length = 20
+        self.price_memory = {
+            product: [0]*self.memory_length for product in self.target_prices}
+        self.std_dev = {'STARFRUIT': 1.5, 'AMETHYSTS': 1.51}
         self.smoothing_factor = 0.2  # Alpha for exponential smoothing
 
-    def calc_amethysts_orders(self, state, product="AMETHYSTS"):
+    def calc_orders(self, state, product):
         order_depth = state.order_depths[product]
         orders = []
         current_position = state.position.get(product, 0)
         available_buy_limit = self.position_limits[product] - current_position
         available_sell_limit = self.position_limits[product] + current_position
+        price_adjustment = self.std_dev[product] if product == 'AMETHYSTS' else self.predict_price_exponential_smoothing(
+            product)
+        if price_adjustment is None:
+            return []
 
-        acceptable_buy_price = self.target_prices[product] - \
-            self.std_dev[product]
-        acceptable_sell_price = self.target_prices[product] + \
-            self.std_dev[product]
+        acceptable_buy_price = self.target_prices[product] - price_adjustment
+        acceptable_sell_price = self.target_prices[product] + price_adjustment
+        print(f"Acceptable buy price for {product}: {acceptable_buy_price}")
+        print(f"Acceptable sell price for {product}: {acceptable_sell_price}")
 
-        print("Acceptable buy price for", product, ":", acceptable_buy_price)
-        print("Acceptable sell price for", product, ":", acceptable_sell_price)
-
-        # Decide on buy orders based on the sell side of the order book
-        for price, amount in sorted(order_depth.sell_orders.items()):
-            if price <= acceptable_buy_price:
-                trade_amount = min(-amount, available_buy_limit)
-                if trade_amount > 0:
-                    print("BUY", product, "at", price, "for", trade_amount)
-                    orders.append(Order(product, price, trade_amount))
-                    available_buy_limit -= trade_amount
-
-        # Decide on sell orders based on the buy side of the order book
-        for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
-            if price >= acceptable_sell_price:
-                trade_amount = min(amount, available_sell_limit)
-                if trade_amount > 0:
-                    print("SELL", product, "at", price, "for", trade_amount)
-                    orders.append(Order(product, price, -trade_amount))
-                    available_sell_limit -= trade_amount
+        orders += self.generate_orders(order_depth.sell_orders,
+                                       acceptable_buy_price, available_buy_limit, 'BUY', product)
+        orders += self.generate_orders(order_depth.buy_orders, acceptable_sell_price,
+                                       available_sell_limit, 'SELL', product, reverse=True)
 
         return orders
+
+    def generate_orders(self, orders_dict, price_limit, available_limit, order_type, product, reverse=False):
+        result_orders = []
+        sorted_orders = sorted(orders_dict.items(), reverse=reverse)
+        for price, amount in sorted_orders:
+            if (price <= price_limit and order_type == 'BUY') or (price >= price_limit and order_type == 'SELL'):
+                trade_amount = min(abs(amount), available_limit) * \
+                    (-1 if order_type == 'SELL' else 1)
+                if trade_amount != 0:
+                    result_orders.append(Order(product, price, trade_amount))
+                    available_limit -= abs(trade_amount)
+        return result_orders
 
     def update_price_memory(self, product, order_depth):
         best_ask = min(
@@ -61,8 +56,7 @@ class Trader:
         if best_ask and best_bid:
             mid_price = (best_ask + best_bid) / 2
             self.price_memory[product].append(mid_price)
-            if len(self.price_memory[product]) > self.memory_length:
-                self.price_memory[product].pop(0)
+            self.price_memory[product].pop(0)
 
     def predict_price_exponential_smoothing(self, product):
         prices = self.price_memory[product]
@@ -74,80 +68,11 @@ class Trader:
                 (1 - self.smoothing_factor) * smooth_price
         return smooth_price
 
-    def calc_starfruit_orders(self, state, product="STARFRUIT"):
-        order_depth = state.order_depths[product]
-        self.update_price_memory(product, order_depth)
-        predicted_price = self.predict_price_exponential_smoothing(product)
-        if predicted_price is None:
-            return []
-
-        orders = []
-        current_position = state.position.get(product, 0)
-        available_buy_limit = self.position_limits[product] - current_position
-        available_sell_limit = self.position_limits[product] + current_position
-
-        # Buy orders
-        for price, amount in sorted(order_depth.sell_orders.items()):
-            if price <= predicted_price:
-                trade_amount = min(-amount, available_buy_limit)
-                if trade_amount > 0:
-                    orders.append(Order(product, price, trade_amount))
-                    available_buy_limit -= trade_amount
-
-        # Sell orders
-        for price, amount in sorted(order_depth.buy_orders.items(), reverse=True):
-            if price >= predicted_price:
-                trade_amount = min(amount, available_sell_limit)
-                if trade_amount > 0:
-                    orders.append(Order(product, price, -trade_amount))
-                    available_sell_limit -= trade_amount
-
-        return orders
-
-    def calc_orchids_orders(self, state, product="ORCHIDS"):
-        conversion_obs = state.observations.conversionObservations.get(
-            product, None)
-        if not conversion_obs:
-            return [], 0  # No conversions if no data available
-
-        # Calculate adjusted prices for buying and selling with south island
-        import_cost = conversion_obs.askPrice + \
-            conversion_obs.transportFees + max(conversion_obs.importTariff, 0)
-        export_revenue = conversion_obs.bidPrice - \
-            conversion_obs.transportFees - max(conversion_obs.exportTariff, 0)
-
-        current_position = state.position.get(product, 0)
-        conversions = 0
-
-        # Local market operations
-        orders = []
-        # Decision logic for local buy orders at adjusted import cost
-        if current_position < self.position_limits[product]:
-            # Simple example: Buy locally if there's capacity
-            # Buy one unit locally
-            orders.append(Order(product, import_cost, 1))
-
-        # South island conversion operations
-        if import_cost < export_revenue and (self.position_limits[product] - current_position) > 0:
-            # Buy from south island if profitable
-            conversions = min(
-                10, self.position_limits[product] - current_position)
-        elif current_position > 0 and export_revenue > import_cost:
-            # Sell to south island if profitable
-            conversions = -min(10, current_position)
-
-        return orders, conversions
-
     def run(self, state: TradingState):
-        result = {}
-        orchids_orders, orchids_conversions = self.calc_orchids_orders(state)
-
-        result["ORCHIDS"] = orchids_orders  # Local orders
-        conversions = orchids_conversions  # South island conversions
-
-        # Other product handling remains the same
-        result["AMETHYSTS"] = self.calc_amethysts_orders(state)
-        result["STARFRUIT"] = self.calc_starfruit_orders(state)
-
-        traderData = "Updated State Information"
+        print(f"traderData: {state.traderData}")
+        print(f"Observations: {str(state.observations)}")
+        result = {product: self.calc_orders(
+            state, product) for product in self.target_prices}
+        traderData = "SAMPLE"  # Replace with actual trader state serialization logic
+        conversions = 1  # Replace with actual conversion logic
         return result, conversions, traderData
