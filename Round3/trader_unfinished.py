@@ -182,11 +182,42 @@ class Trader:
 
         return orders
 
+    def calc_roses_orders(self, state, product="ROSES"):
+        order_depth = state.order_depths[product]
+        best_ask = min(
+            order_depth.sell_orders) if order_depth.sell_orders else None
+        best_bid = max(
+            order_depth.buy_orders) if order_depth.buy_orders else None
+
+        # Update price memory and calculate the moving average
+        self.update_price_memory(product, best_ask, best_bid)
+        # last 10 prices for the moving average
+        moving_avg = np.mean(self.price_memory[product][-10:])
+
+        orders = []
+        if best_ask and best_ask < moving_avg * 0.98:  # Buy if the price is 2% below the moving average
+            orders.append(Order(product, best_ask, min(
+                self.position_limits[product], order_depth.sell_orders[best_ask])))
+        if best_bid and best_bid > moving_avg * 1.02:  # Sell if the price is 2% above the moving average
+            orders.append(Order(product, best_bid, -
+                                min(self.position_limits[product], order_depth.buy_orders[best_bid])))
+
+        return orders
+
     def run(self, state: TradingState):
         result = {}
+
         for product in ['CHOCOLATE', 'STRAWBERRIES', 'ROSES', 'GIFT_BASKET']:
-            result[product] = self.calc_orders_for_product(state, product)
-        traderData = "State info for next round"  # Example placeholder
-        conversions = 1
+            if product == 'ROSES':  # Special handling for ROSES
+                result[product] = self.calc_roses_orders(state, product)
+            else:
+                result[product] = self.calc_orders_for_product(
+                    state, product)
+
+        # Update with actual state data if necessary
+        traderData = "State info for next round"
+        conversions = 1  # Update conversion logic if applicable
+
+        # Ensure all data is logged before returning
         logger.flush(state, result, conversions, traderData)
         return result, conversions, traderData
