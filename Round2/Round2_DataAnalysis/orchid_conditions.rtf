@@ -1,9 +1,13 @@
 {\rtf1\ansi\ansicpg1252\cocoartf2761
 \cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fswiss\fcharset0 Helvetica-Bold;\f2\froman\fcharset0 TimesNewRomanPSMT;
+\f3\fmodern\fcharset0 Courier-Bold;\f4\froman\fcharset0 Times-Bold;\f5\froman\fcharset0 Times-Roman;
 }
-{\colortbl;\red255\green255\blue255;\red0\green0\blue0;\red11\green76\blue180;}
-{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;\cssrgb\c1961\c38824\c75686;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww37900\viewh21300\viewkind0
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+{\*\listtable{\list\listtemplateid1\listhybrid{\listlevel\levelnfc0\levelnfcn0\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{decimal\}}{\leveltext\leveltemplateid1\'01\'00;}{\levelnumbers\'01;}\fi-360\li720\lin720 }{\listname ;}\listid1}
+{\list\listtemplateid2\listhybrid{\listlevel\levelnfc23\levelnfcn23\leveljc0\leveljcn0\levelfollow0\levelstartat1\levelspace360\levelindent0{\*\levelmarker \{disc\}}{\leveltext\leveltemplateid101\'01\uc0\u8226 ;}{\levelnumbers;}\fi-360\li720\lin720 }{\listname ;}\listid2}}
+{\*\listoverridetable{\listoverride\listid1\listoverridecount0\ls1}{\listoverride\listid2\listoverridecount0\ls2}}
+\paperw11900\paperh16840\margl1440\margr1440\vieww28600\viewh18000\viewkind0
 \pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
 
 \f0\fs32 \cf0 \
@@ -29,7 +33,55 @@ Summarizing trading microstructure of ORCHIDs:\
 \pard\pardeftab720\li960\fi-960\partightenfactor0
 \cf0 1.
 \f2\fs18\fsmilli9333 \'a0\'a0\'a0\'a0 
-\f0\fs29\fsmilli14667 ConversionObservation ({\field{\*\fldinst{HYPERLINK "https://imc-prosperity.notion.site/Writing-an-Algorithm-in-Python-658e233a26e24510bfccf0b1df647858#44efb36257b94733887ae00f46a805f1"}}{\fldrslt \cf3 \ul \ulc3 https://imc-prosperity.notion.site/Writing-an-Algorithm-in-Python-658e233a26e24510bfccf0b1df647858#44efb36257b94733887ae00f46a805f1}}) shows quotes of ORCHID offered by the ducks from South Archipelago\
+\f0\fs29\fsmilli14667 ConversionObservation \
+\
+\pard\pardeftab720\sa298\partightenfactor0
+
+\f3\b\fs39 \cf0 \outl0\strokewidth0 \strokec2 Observation
+\f4\fs36  class\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f5\b0\fs24 \cf0 Observation details help to decide on eventual orders or conversion requests. There are two items delivered inside the TradingState instance:\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls1\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	1	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Simple product to value dictionary inside plainValueObservations\
+\ls1\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	2	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Dictionary of complex 
+\f4\b ConversionObservation
+\f5\b0  values for respective products. Used to place conversion requests from Trader class. Structure visible below.\
+\pard\pardeftab720\li960\fi-960\partightenfactor0
+
+\f0\fs29\fsmilli14667 \cf0 \outl0\strokewidth0 \
+class ConversionObservation:\
+\
+    def __init__(self, bidPrice: float, askPrice: float, transportFees: float, exportTariff: float, importTariff: float, sunlight: float, humidity: float):\
+        self.bidPrice = bidPrice\
+        self.askPrice = askPrice\
+        self.transportFees = transportFees\
+        self.exportTariff = exportTariff\
+        self.importTariff = importTariff\
+        self.sunlight = sunlight\
+        self.humidity = humidity\
+\
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f5\fs24 \cf0 \outl0\strokewidth0 \strokec2 In case you decide to place conversion request on product listed integer number should be returned as \'e2\'80\'9cconversions\'e2\'80\uc0\u157  value from run() method. Based on logic defined inside Prosperity container it will convert positions acquired by submitted code. There is a number of conditions for conversion to happen:\
+\pard\tx220\tx720\pardeftab720\li720\fi-720\partightenfactor0
+\ls2\ilvl0\cf0 \kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 You need to obtain either long or short position earlier.\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Conversion request cannot exceed possessed items count.\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 In case you have 10 items short (-10) you can only request from 1 to 10. Request for 11 or more will be fully ignored.\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 While conversion happens you will need to cover transportation and import/export tariff.\
+\ls2\ilvl0\kerning1\expnd0\expndtw0 \outl0\strokewidth0 {\listtext	\uc0\u8226 	}\expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 Conversion request is not mandatory. You can send 0 or None as value.\
+\pard\pardeftab720\li960\fi-960\partightenfactor0
+
+\f0\fs29\fsmilli14667 \cf0 \outl0\strokewidth0 \
+\
+ shows quotes of ORCHID offered by the ducks from South Archipelago\
 2.
 \f2\fs18\fsmilli9333 \'a0\'a0\'a0\'a0 
 \f0\fs29\fsmilli14667 If you want to purchase 1 unit of ORCHID from the south, you will purchase at the askPrice, pay the TRANSPORT_FEES, IMPORT_TARIFF\
