@@ -1,16 +1,17 @@
 from datamodel import Order, TradingState
 import numpy as np
+from math import log, sqrt, exp, erf
 
 
 class Trader:
     def __init__(self):
         self.target_prices = {
             'STARFRUIT': 5039.5, 'AMETHYSTS': 10000, 'CHOCOLATE': 8000,
-            'STRAWBERRIES': 4000, 'ROSES': 15000, 'GIFT_BASKET': 70000
+            'STRAWBERRIES': 4000, 'ROSES': 15000, 'GIFT_BASKET': 70000, 'COCONUT': 9500, 'COCONUT_COUPON': 500
         }
         self.position_limits = {
             'STARFRUIT': 20, 'AMETHYSTS': 20, 'CHOCOLATE': 250,
-            'STRAWBERRIES': 350, 'ROSES': 60, 'GIFT_BASKET': 60
+            'STRAWBERRIES': 350, 'ROSES': 60, 'GIFT_BASKET': 60, 'COCONUT': 300, 'COCONUT_COUPON': 600
         }
         self.memory_length = 20
         self.price_memory = {
@@ -169,6 +170,53 @@ class Trader:
 
         return orders
 
+    def norm_cdf(self, x):
+        """Calculate the cumulative distribution function for the standard normal distribution."""
+        return 0.5 * (1 + erf(x / sqrt(2)))
+
+    def black_scholes_call(self, S, K, T, r, sigma):
+        """Calculate the Black-Scholes option price for a call option."""
+        d1 = (log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * sqrt(T))
+        d2 = d1 - sigma * sqrt(T)
+        call_price = S * self.norm_cdf(d1) - K * \
+            exp(-r * T) * self.norm_cdf(d2)
+        return call_price
+
+    def calc_coconut_orders(self, state, product):
+        # Define market parameters for COCONUT_COUPON
+        S = 10000  # Example current price, dynamically update based on actual data
+        K = 10000  # Example strike price
+        T = 250 / 365  # Time to expiry in years
+        r = 0  # Risk-free rate
+        sigma = 0.20  # Volatility
+
+        orders = []
+        acceptable_price = self.black_scholes_call(
+            S, K, T, r, sigma) if product == "COCONUT_COUPON" else S
+        order_depth = state.order_depths[product]
+        current_position = state.position.get(product, 0)
+
+        if order_depth.sell_orders:
+            best_ask = min(order_depth.sell_orders)
+            if float(best_ask) < acceptable_price:
+                available_limit = self.position_limits[product] - \
+                    current_position
+                amount = min(
+                    order_depth.sell_orders[best_ask], available_limit)
+                if amount > 0:
+                    orders.append(Order(product, best_ask, amount))
+
+        if order_depth.buy_orders:
+            best_bid = max(order_depth.buy_orders)
+            if float(best_bid) > acceptable_price:
+                available_limit = self.position_limits[product] + \
+                    current_position
+                amount = min(order_depth.buy_orders[best_bid], available_limit)
+                if amount > 0:
+                    orders.append(Order(product, best_bid, -amount))
+
+        return orders
+
     def run(self, state: TradingState):
         print("traderData: " + state.traderData)
         print("Observations: " + str(state.observations))
@@ -181,8 +229,10 @@ class Trader:
         result["ROSES"] = self.calc_roses_orders(state)
         result["STRAWBERRIES"] = self.calc_orders_for_product(
             state, "STRAWBERRIES")
+        result["COCONUT"] = self.calc_coconut_orders(state, "COCONUT")
+        result["COCONUT_COUPON"] = self.calc_coconut_orders(
+            state, "COCONUT_COUPON")
 
         traderData = "SAMPLE"  # Replace with actual trader state serialization logic
         conversions = 1  # Replace with actual conversion logic
-        # Make sure to pass the correct orders structure to the logger
         return result, conversions, traderData
