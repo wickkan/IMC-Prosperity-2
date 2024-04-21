@@ -27,7 +27,7 @@ class Trader:
         S = 10000  # Current price of COCONUT, needs dynamic update based on market
         K = 10000  # Strike price as given in problem statement
         T = 250 / 365  # Time to expiry in years
-        r = 0.01  # Risk-free rate, should be based on market or assumed
+        r = 0  # Risk-free rate, should be based on market or assumed
         sigma = 0.20  # Volatility, should be calculated from market data
 
         for product in state.order_depths:
