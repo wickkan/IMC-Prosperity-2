@@ -4,7 +4,32 @@ import numpy as np
 import math
 
 
+class PriceEstimator:
+    def __init__(self, alpha=0.1):
+        self.ema_prices = {}
+        self.alpha = alpha  # Smoothing factor, adjustable based on responsiveness needs
+
+    def update_price(self, product, new_price):
+        if product in self.ema_prices:
+            self.ema_prices[product] = (
+                1 - self.alpha) * self.ema_prices[product] + self.alpha * new_price
+        else:
+            self.ema_prices[product] = new_price
+        return self.ema_prices[product]
+
+
 class Trader:
+    def __init__(self):
+        self.inventory = {
+            "COCONUT": 0,
+            "COCONUT_COUPON": 0
+        }
+        self.position_limits = {
+            "COCONUT": 300,
+            "COCONUT_COUPON": 600
+        }
+        # Smaller alpha values smooth out price volatility more
+        self.price_estimator = PriceEstimator(alpha=0.1)
 
     def norm_cdf(self, x):
         """Use the error function to calculate the cumulative distribution function for the standard normal distribution."""
@@ -23,41 +48,56 @@ class Trader:
         print("traderData: " + state.traderData)
         print("Observations: " + str(state.observations))
         result = {}
-        # Example market parameters (adjust based on actual market data or observations)
-        S = 10000  # Current price of COCONUT, needs dynamic update based on market
-        K = 10000  # Strike price as given in problem statement
-        T = 250 / 365  # Time to expiry in years
-        r = 0  # Risk-free rate, should be based on market or assumed
-        sigma = 0.20  # Volatility, should be calculated from market data
 
         for product in state.order_depths:
             order_depth: OrderDepth = state.order_depths[product]
             orders: List[Order] = []
 
-            # Calculate acceptable price using Black-Scholes for COCONUT_COUPON
-            if product == "COCONUT_COUPON":
-                acceptable_price = self.black_scholes_call(S, K, T, r, sigma)
+            if len(order_depth.sell_orders) > 0:
+                # Assume the lowest sell order as the latest price
+                latest_price = float(list(order_depth.sell_orders.keys())[0])
+                S = self.price_estimator.update_price(product, latest_price)
             else:
-                acceptable_price = S  # For COCONUT, might use another strategy
+                # Default to 10000 if no sell orders are present
+                S = self.price_estimator.ema_prices.get(product, 10000)
+
+            K = 10000
+            T = 250 / 365
+            r = 0
+            sigma = 0.20
+            acceptable_price = self.black_scholes_call(
+                S, K, T, r, sigma) if product == "COCONUT_COUPON" else S
 
             print("Acceptable price for " + product +
                   ": " + str(acceptable_price))
             print("Buy Order depth : " + str(len(order_depth.buy_orders)) +
                   ", Sell order depth : " + str(len(order_depth.sell_orders)))
 
+            # Handle sell orders
             if len(order_depth.sell_orders) != 0:
                 best_ask, best_ask_amount = list(
                     order_depth.sell_orders.items())[0]
                 if float(best_ask) < acceptable_price:
-                    print("BUY", str(-best_ask_amount) + "x", best_ask)
-                    orders.append(Order(product, best_ask, -best_ask_amount))
+                    # Ensure not buying more than position limit
+                    max_buy = self.position_limits[product] - \
+                        self.inventory[product]
+                    buy_amount = min(-best_ask_amount, max_buy)
+                    if buy_amount > 0:
+                        print("BUY", str(buy_amount) + "x", best_ask)
+                        orders.append(Order(product, best_ask, -buy_amount))
+                        self.inventory[product] += buy_amount
 
+            # Handle buy orders
             if len(order_depth.buy_orders) != 0:
                 best_bid, best_bid_amount = list(
                     order_depth.buy_orders.items())[0]
                 if float(best_bid) > acceptable_price:
-                    print("SELL", str(best_bid_amount) + "x", best_bid)
-                    orders.append(Order(product, best_bid, -best_bid_amount))
+                    # Ensure not selling more than what we have
+                    sell_amount = min(best_bid_amount, self.inventory[product])
+                    if sell_amount > 0:
+                        print("SELL", str(sell_amount) + "x", best_bid)
+                        orders.append(Order(product, best_bid, -sell_amount))
+                        self.inventory[product] -= sell_amount
 
             result[product] = orders
 
