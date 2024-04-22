@@ -1,5 +1,5 @@
 import numpy as np
-from datamodel import Order, Symbol, TradingState
+from Round2.Round2_DataAnalysis.datamodel import Order, Symbol, TradingState
 from typing import Any, List
 
 
