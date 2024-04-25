@@ -1,8 +1,8 @@
 import pandas as pd
-from datamodel import Order, Symbol, TradingState
-from trader_unfinished import Trader
+from Round2.Round2_DataAnalysis.datamodel import Order, Symbol, TradingState
+from Round2.Round2_DataAnalysis.trader_unfinished import Trader
 from datetime import datetime
-from datamodel import OrderDepth, ConversionObservation, Observation
+from Round2.Round2_DataAnalysis.datamodel import OrderDepth, ConversionObservation, Observation
 
 
 class Backtester:
