@@ -1,6 +1,6 @@
 # IMC-Prosperity-2-Mr-Monopoly
 
-#### Final Rank:
+#### Final Rank: 795 out of 9139 teams
 
 ## Mr Monopoly Team:
 - Kanishka Wickramasinghe (LinkedIn: www.linkedin.com/in/kanishkabw)
