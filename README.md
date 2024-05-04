@@ -1,6 +1,6 @@
 # IMC-Prosperity-2-Mr-Monopoly
 
-#### Final Rank: 795 out of 9139 teams
+Final Rank: 56th in Australia and 795th overall
 
 ## Mr Monopoly Team:
 - Kanishka Wickramasinghe (LinkedIn: www.linkedin.com/in/kanishkabw)
