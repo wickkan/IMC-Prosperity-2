@@ -16,7 +16,7 @@ Our trading approach was based on interpreting the trading state, which included
 
 While our performance did not top the leaderboard, the challenge provided us with invaluable insights into algorithmic trading, strategy development, and real-time decision-making in a fluctuating market. This experience has deepened our understanding of market dynamics and trading strategies.
 
-Going forward, if we were to participate again, we would aim to refine our algorithms based on the feedback and data gathered from this challenge. Enhancements will focus on better prediction models and more dynamic order management strategies.
+Going forward, if we were to participate again, we would aim to refine our algorithms based on the feedback and data gathered from this challenge. Enhancements will focus on better prediction models and more dynamic order management strategies in order to maximise profit.
 
 
 
